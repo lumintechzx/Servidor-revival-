@@ -2,23 +2,27 @@ import os
 import json
 import logging
 import datetime
+
+# Importação obrigatória do eventlet antes de tudo para aplicar o patch de rede
+import eventlet
+eventlet.monkey_patch()
+
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import firebase_admin
 from firebase_admin import credentials, db, auth
 from matchmaker import Matchmaker
 
-# Configuração de Logs Profissionais
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'revival_secret_key_132!')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'revival_secret_key_777!')
 
-# Inicializa o SocketIO para conexões de baixa latência em tempo real
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent' if os.environ.get('PORT') else 'threading')
+# Flask-SocketIO configurado para rodar nativamente com Eventlet
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 server_matchmaker = Matchmaker()
 
-# ==================== CONEXÃO SEGURA FIREBASE ====================
+# ==================== CONFIGURAÇÃO FIREBASE ====================
 if os.environ.get('FIREBASE_CREDENTIALS'):
     cred_json = json.loads(os.environ.get('FIREBASE_CREDENTIALS'))
     cred = credentials.Certificate(cred_json)
@@ -33,15 +37,15 @@ if cred:
         'databaseURL': 'https://project-revival-29e2b-default-rtdb.firebaseio.com'
     })
 
-# ==================== ROTAS DA API NORMAL (HTTP) ====================
+# ==================== ROTAS HTTP (LOBBY/API) ====================
 
 @app.route('/')
-def status():
+def home():
     return jsonify({
         "status": "online",
         "engine": "Project Revival Core",
-        "version": "3.0.0-PRO",
-        "active_games": len(server_matchmaker.obter_salas())
+        "version": "3.1.0-STABLE",
+        "active_matches": len(server_matchmaker.obter_salas())
     }), 200
 
 @app.route('/api/v1/auth/login', methods=['POST'])
@@ -59,10 +63,10 @@ def player_login():
         player = user_ref.get()
 
         if not player:
-            return jsonify({"success": False, "msg": "Conta não registrada no jogo."}), 404
+            return jsonify({"success": False, "msg": "Perfil não encontrado no servidor."}), 404
 
         if player.get('banido', False):
-            return jsonify({"success": False, "msg": "Esta conta encontra-se BANIDA."}), 403
+            return jsonify({"success": False, "msg": "Acesso Suspenso. Esta conta está banida."}), 403
 
         user_ref.update({
             'status': 'online',
@@ -83,11 +87,10 @@ def player_login():
     except Exception as e:
         return jsonify({"success": False, "msg": "Erro de Autenticação.", "error": str(e)}), 401
 
-# ==================== ENGINE EM TEMPO REAL (WEBSOCKETS) ====================
+# ==================== ROTAS WEBSOCKET (REALTIME GAMEPLAY) ====================
 
 @socketio.on('join_game_lobby')
 def on_join(data):
-    """Acionado quando o celular do jogador entra no lobby de uma partida."""
     sala_id = data.get('sala_id')
     uid = data.get('uid')
     nick = data.get('nick', 'Jogador')
@@ -96,28 +99,23 @@ def on_join(data):
     resultado = server_matchmaker.entrar_na_sala(sala_id, uid, nick)
     
     if resultado["success"]:
-        # Atualiza o espelho no Firebase para o Painel Web Administrativo acompanhar
         db.reference(f'lobby_global/{sala_id}').set(resultado["sala"])
-        # Alerta todos na sala de que um novo oponente entrou
         emit('player_joined', {"nick": nick, "uid": uid, "sala": resultado["sala"]}, to=sala_id)
     else:
         emit('error', {"msg": resultado["msg"]})
 
 @socketio.on('update_position')
 def on_move(data):
-    """Recebe a posição X,Y,Z do jogador e replica para todos os outros na partida instantaneamente."""
     sala_id = data.get('sala_id')
     uid = data.get('uid')
     x, y, z = data.get('x'), data.get('y'), data.get('z')
     
     player_data = server_matchmaker.processar_movimento(sala_id, uid, x, y, z)
     if player_data:
-        # Envia a nova posição apenas para os outros jogadores da mesma sala
         emit('player_moved', {"uid": uid, "posicao": player_data["posicao"]}, to=sala_id, include_self=False)
 
 @socketio.on('fire_weapon')
 def on_fire(data):
-    """Processa o disparo de um tiro e calcula se houve acerto crítico."""
     sala_id = data.get('sala_id')
     atacante_uid = data.get('uid')
     vitima_uid = data.get('vitima_uid')
@@ -128,15 +126,7 @@ def on_fire(data):
         db.reference(f'lobby_global/{sala_id}').set(sala_atualizada)
         emit('match_state_update', sala_atualizada, to=sala_id)
 
-@socketio.on('disconnect_player')
-def on_disconnect(data):
-    sala_id = data.get('sala_id')
-    uid = data.get('uid')
-    leave_room(sala_id)
-    logging.info(f"Jogador {uid} saiu da sala de partida {sala_id}")
-
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    # Inicia o servidor com suporte a WebSockets ativos
     socketio.run(app, host='0.0.0.0', port=port)
-  
+    

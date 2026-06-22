@@ -7,7 +7,7 @@ class Matchmaker:
         self.active_rooms = {}
 
     def criar_sala_combate(self, host_uid, host_nick, nome_sala, mapa):
-        """Gera uma sala de partida única com ID numérico de 6 dígitos estilo FF."""
+        """Gera uma sala de partida com ID único de 6 dígitos estilo Free Fire."""
         sala_id = str(uuid.uuid4().int)[:6] 
         
         nova_sala = {
@@ -22,7 +22,6 @@ class Matchmaker:
                 host_uid: {
                     "nick": host_nick,
                     "hp": 100,
-                    "coletes": 1,
                     "kills": 0,
                     "status": "VIVO", # VIVO, ABATIDO, DESCONECTADO
                     "posicao": {"x": 0.0, "y": 0.0, "z": 0.0}
@@ -36,22 +35,21 @@ class Matchmaker:
         return nova_sala
 
     def entrar_na_sala(self, sala_id, player_uid, player_nick):
-        """Adiciona um jogador ao lobby de espera se houver vaga."""
+        """Adiciona um jogador ao lobby da sala."""
         if sala_id not in self.active_rooms:
-            return {"success": False, "msg": "Sala de combate não encontrada."}
+            return {"success": False, "msg": "Sala não encontrada."}
         
         sala = self.active_rooms[sala_id]
         
         if len(sala["jogadores"]) >= sala["max_players"]:
-            return {"success": False, "msg": "Esta sala já atingiu o limite de 48 jogadores."}
+            return {"success": False, "msg": "Sala cheia."}
             
         if sala["status"] != "LOBBY":
-            return {"success": False, "msg": "A partida já está em andamento."}
+            return {"success": False, "msg": "A partida já começou."}
 
         sala["jogadores"][player_uid] = {
             "nick": player_nick,
             "hp": 100,
-            "coletes": 1,
             "kills": 0,
             "status": "VIVO",
             "posicao": {"x": 0.0, "y": 0.0, "z": 0.0}
@@ -59,7 +57,7 @@ class Matchmaker:
         return {"success": True, "sala": sala}
 
     def processar_movimento(self, sala_id, player_uid, x, y, z):
-        """Atualiza a posição do jogador no mapa 3D."""
+        """Atualiza a posição 3D do player no servidor de partida."""
         if sala_id in self.active_rooms:
             sala = self.active_rooms[sala_id]
             if player_uid in sala["jogadores"]:
@@ -68,7 +66,7 @@ class Matchmaker:
         return None
 
     def processar_dano(self, sala_id, atacante_uid, vitima_uid, dano):
-        """Calcula a perda de vida (HP) e computa se houve abate (Kill)."""
+        """Aplica dano de tiro e computa abates (Kills)."""
         if sala_id not in self.active_rooms:
             return None
             
@@ -78,19 +76,17 @@ class Matchmaker:
             
         vitima = sala["jogadores"][vitima_uid]
         if vitima["status"] != "VIVO":
-            return {"msg": "Jogador já está morto."}
+            return {"msg": "Alvo já eliminado."}
 
-        # Aplica o dano recebido pelo tiro
         vitima["hp"] = max(0, vitima["hp"] - int(dano))
         
-        # Verifica abate
         if vitima["hp"] == 0:
             vitima["status"] = "ABATIDO"
             sala["jogadores"][atacante_uid]["kills"] += 1
-            logging.info(f"[PARTIDA {sala_id}] {sala['jogadores'][atacante_uid]['nick']} ABATEU {vitima['nick']}")
+            logging.info(f"[COMBATE] {sala['jogadores'][atacante_uid]['nick']} abateu {vitima['nick']}")
 
         return sala
 
     def obter_salas(self):
         return self.active_rooms
-      
+        

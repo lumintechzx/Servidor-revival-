@@ -2,11 +2,6 @@ import os
 import json
 import logging
 import datetime
-
-# Importação obrigatória do eventlet antes de tudo para aplicar o patch de rede
-import eventlet
-eventlet.monkey_patch()
-
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import firebase_admin
@@ -18,8 +13,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'revival_secret_key_777!')
 
-# Flask-SocketIO configurado para rodar nativamente com Eventlet
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+# Configurado de modo simples (o gunicorn vai gerenciar o paralelismo por fora)
+socketio = SocketIO(app, cors_allowed_origins="*")
 server_matchmaker = Matchmaker()
 
 # ==================== CONFIGURAÇÃO FIREBASE ====================
